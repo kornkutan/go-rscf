@@ -99,14 +99,14 @@ func TestMapASCII(t *testing.T) {
 		want   string
 		wantOK bool
 	}{
-		{"plain ascii", "plain ascii", "plain ascii", true},
+		{"plain ascii", "plain ascii", "plain ascii", false},
 		{"em-dash", "a \u2014 b", "a - b", true},
 		{"arrow", "x \u2192 y", "x -> y", true},
 		{"plusminus", "n\u00B11", "n+/-1", true},
 		{"quotes", "\u201csmart\u201d \u2018q\u2019", `"smart" 'q'`, true},
 		{"ellipsis", "a\u2026b", "a...b", true},
-		{"unmappable thai", "\u0E01\u0E32\u0E23", "", false},
-		{"mixed ok and unknown", "ok \u2014 \u0E01", "", false},
+		{"unmappable thai passes through", "\u0E01\u0E32\u0E23", "\u0E01\u0E32\u0E23", false},
+		{"mixed: symbol fixed, thai kept", "ok \u2014 \u0E01", "ok - \u0E01", true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -324,26 +324,40 @@ func TestASCIISymbol(t *testing.T) {
 	})
 }
 
-func TestASCIIUnmappable(t *testing.T) {
+func TestASCIIThaiAcceptable(t *testing.T) {
+	// Pure Thai text: no mappable symbols, no violation at all.
 	res, err := Analyze([]byte("package x\n\n// \u0E01\u0E32\u0E23 thai text\nvar _ = 1\n"), fname)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var gotFixable, gotReport bool
 	for _, v := range res.Violations {
 		if v.Rule == RAscii {
-			if v.Fixable {
-				gotFixable = true
-			} else {
-				gotReport = true
-			}
+			t.Errorf("pure Thai comment must not be flagged: %s", v.Message)
 		}
 	}
-	if gotFixable {
-		t.Errorf("unmappable Thai should not be Fixable")
+
+	// Mixed Thai + em-dash: only the symbol is normalized, Thai preserved.
+	src := []byte("package x\n\n// \u0E01\u0E32\u0E23 \u2014 data\nvar _ = 1\n")
+	res, err = Analyze(src, fname)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !gotReport {
-		t.Errorf("expected a report-only ascii violation")
+	found := false
+	for _, v := range res.Violations {
+		if v.Rule == RAscii {
+			if !v.Fixable {
+				t.Errorf("mixed symbol+Thai should be Fixable")
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected one fixable ascii violation")
+	}
+	out := Apply(src, res.Edits)
+	want := "// \u0E01\u0E32\u0E23 - data"
+	if !strings.Contains(string(out), want) {
+		t.Errorf("em-dash fixed and Thai preserved; want %q\nGOT:\n%s", want, out)
 	}
 }
 

@@ -59,7 +59,7 @@ type CalculateInput struct {
 3. Section tag labels use UPPER_SNAKE_CASE.
 4. Inline `///` allowed: `AmortizationType string /// "balloon"`.
 5. Never `/* */` for doc annotations.
-6. ASCII only. `->` for arrows, `-` for em dash, `"` for smart quotes.
+6. ASCII symbols. `->` for arrows, `-` for em dash, `"` for smart quotes. Human-language scripts (Thai, etc.) pass through untouched.
 7. `///` must be DETACHED from top-level decls - gofmt rewrites decl-attached `///` to `// /` (verified Go 1.26). Applies to comments directly above `func`, `type`, top-level `const X`/`var X`, and the `const(`/`var(`/`type` keyword. `///` inside `const (...)`/`var (...)` blocks, above struct fields, and in function bodies survives untouched.
 8. No comments tracing back to spec docs in technical terms (`Section A`, `Section 1.2`). Explain directly.
 

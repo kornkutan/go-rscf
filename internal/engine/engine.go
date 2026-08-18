@@ -93,7 +93,7 @@ func asciiPairs(s string) string {
 
 func mapASCII(s string) (string, bool) {
 	var b strings.Builder
-	ok := true
+	changed := false
 	for _, r := range s {
 		if r < 128 {
 			b.WriteRune(r)
@@ -101,14 +101,12 @@ func mapASCII(s string) (string, bool) {
 		}
 		if repl, found := asciiMap[r]; found {
 			b.WriteString(repl)
+			changed = true
 		} else {
-			ok = false
+			b.WriteRune(r)
 		}
 	}
-	if !ok {
-		return "", false
-	}
-	return b.String(), true
+	return b.String(), changed
 }
 
 func isSwaggerOrDirective(g *ast.CommentGroup) bool {
@@ -284,13 +282,9 @@ func Analyze(src []byte, filename string) (*Result, error) {
 				detachIfAttached(g)
 			}
 
-			if nb, ok := mapASCII(body); ok {
-				if nb != body {
-					r.Violations = append(r.Violations, Violation{Line: tf.Line(c.Pos()), Rule: RAscii, Message: "replace non-ASCII symbols in comment: " + asciiPairs(body), Fixable: true})
-					r.Edits = append(r.Edits, Edit{lo + 2, hi, nb})
-				}
-			} else {
-				r.Violations = append(r.Violations, Violation{Line: tf.Line(c.Pos()), Rule: RAscii, Message: "manual review: non-ASCII text with no ASCII mapping (e.g. Thai); rewrite or acknowledge", Fixable: false})
+			if nb, changed := mapASCII(body); changed {
+				r.Violations = append(r.Violations, Violation{Line: tf.Line(c.Pos()), Rule: RAscii, Message: "replace non-ASCII symbols in comment: " + asciiPairs(body), Fixable: true})
+				r.Edits = append(r.Edits, Edit{lo + 2, hi, nb})
 			}
 
 			if slopRe.MatchString(trimmed) {
