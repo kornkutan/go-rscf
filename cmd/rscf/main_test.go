@@ -154,7 +154,7 @@ func TestRunFixWritesAndStaysGofmtClean(t *testing.T) {
 	}
 	assertGofmtClean(t, got)
 
-	// Second run: fixable work is done; only the PURPOSE placeholder remains.
+	/// Second run: fixable work is done; only the PURPOSE placeholder remains.
 	code2, out2, _ := runCLI(t, "--fix", dir)
 	if code2 != 1 {
 		t.Errorf("second run exit = %d, want 1 (placeholder)", code2)
@@ -242,17 +242,17 @@ func TestCollectFiles(t *testing.T) {
 		}
 	}
 
-	// Single .go file arg.
+	/// Single .go file arg.
 	single := collectFiles([]string{filepath.Join(dir, "a.go")}, &errb)
 	if len(single) != 1 || filepath.Base(single[0]) != "a.go" {
 		t.Errorf("single file arg: got %v", single)
 	}
-	// Non-.go file arg is ignored.
+	/// Non-.go file arg is ignored.
 	none := collectFiles([]string{filepath.Join(dir, "notes.txt")}, &errb)
 	if len(none) != 0 {
 		t.Errorf("non-.go file should be ignored: %v", none)
 	}
-	// Stat error path.
+	/// Stat error path.
 	_ = collectFiles([]string{"/no/such/path"}, &errb)
 	if !strings.Contains(errb.String(), "stat /no/such/path") {
 		t.Errorf("missing stat error on stderr, got: %s", errb.String())

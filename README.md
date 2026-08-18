@@ -57,7 +57,7 @@ type CalculateInput struct {
 1. No self-explanatory comments. If the code says it, do not repeat it.
 2. `FORMULA` is mandatory for financial/business formulas.
 3. Section tag labels use UPPER_SNAKE_CASE.
-4. Inline `///` allowed: `AmortizationType string /// "balloon"`.
+4. Inline `///` allowed: `AmortizationType string /// "balloon"`. Every comment is `///` - annotations, tags, remarks, parked code. `//` survives only where tooling forces it: the package doc clause (gofmt rewrites `///` to `// /` there), swagger `@` groups, and compiler directives (`//go:`, `//nolint`).
 5. Never `/* */` for doc annotations.
 6. ASCII symbols. `->` for arrows, `-` for em dash, `"` for smart quotes. Human-language scripts (Thai, etc.) pass through untouched.
 7. `///` must be DETACHED from top-level decls - gofmt rewrites decl-attached `///` to `// /` (verified Go 1.26). Applies to comments directly above `func`, `type`, top-level `const X`/`var X`, and the `const(`/`var(`/`type` keyword. `///` inside `const (...)`/`var (...)` blocks, above struct fields, and in function bodies survives untouched.
@@ -74,8 +74,9 @@ No `//` or `///` comments above public or private functions. Put notes inside th
 | `//` or `///` above a func, non-swagger                | fail  | delete                              |
 | `// @...` swagger group                                | pass  | keep                                |
 | `///` attached to `type`/`const`/`var` decl            | fail  | insert blank line                   |
-| plain `//` godoc above `type`/`const`/`var`            | pass  | keep                                |
-| `//` annotation/tag in structs, const/var blocks       | fail  | rewrite to `///`                    |
+| plain `//` godoc above `type`/`const`/`var`            | fail  | rewrite to `///` + detach           |
+| any other `//` comment (body, trailing, floating)      | fail  | rewrite to `///`                    |
+| `///` above the `package` clause                       | fail  | rewrite to `//` (gofmt constraint)  |
 | `/* */` doc comment                                    | fail  | rewrite to `///` lines              |
 | Unicode symbols in comments                            | fail  | ASCII normalize                     |
 | Missing `FILE` heading                                 | fail  | inject (from filename)              |

@@ -26,6 +26,7 @@ const (
 	RAscii       Rule = "ascii"
 	RHeadingFile Rule = "heading-file"
 	RHeadingPurp Rule = "heading-purpose"
+	RPackageDoc  Rule = "package-doc"
 	RSlop        Rule = "slop"
 )
 
@@ -152,36 +153,7 @@ func Analyze(src []byte, filename string) (*Result, error) {
 		return false
 	}
 
-	// Annotation zones: struct/interface bodies and parenthesized const/var blocks.
-	type zone struct{ lo, hi token.Pos }
-	var zones []zone
-	ast.Inspect(f, func(n ast.Node) bool {
-		switch t := n.(type) {
-		case *ast.StructType:
-			if t.Fields != nil {
-				zones = append(zones, zone{t.Fields.Pos(), t.Fields.End()})
-			}
-		case *ast.InterfaceType:
-			if t.Methods != nil {
-				zones = append(zones, zone{t.Methods.Pos(), t.Methods.End()})
-			}
-		case *ast.GenDecl:
-			if t.Tok != token.IMPORT && t.Lparen.IsValid() && t.Rparen.IsValid() {
-				zones = append(zones, zone{t.Lparen, t.Rparen})
-			}
-		}
-		return true
-	})
-	inZone := func(p token.Pos) bool {
-		for _, z := range zones {
-			if p >= z.lo && p < z.hi {
-				return true
-			}
-		}
-		return false
-	}
-
-	// Rule A: delete non-swagger comment groups attached to funcs.
+	/// Rule A: delete non-swagger comment groups attached to funcs.
 	for _, d := range f.Decls {
 		fd, ok := d.(*ast.FuncDecl)
 		if !ok || fd.Doc == nil {
@@ -203,9 +175,9 @@ func Analyze(src []byte, filename string) (*Result, error) {
 		deleted = append(deleted, span{lo, hi})
 	}
 
-	// Map of comment groups that are the Doc of a top-level GenDecl (type/const/var/import).
-	// Used so rule C, when it rewrites an attached // tag to ///, also detaches the decl
-	// (otherwise gofmt would rewrite the /// it just created).
+	/// Map of comment groups that are the Doc of a top-level GenDecl (type/const/var/import).
+	/// Used so rule C, when it rewrites an attached // tag to ///, also detaches the decl
+	/// (otherwise gofmt would rewrite the /// it just created).
 	genDocDecls := map[*ast.CommentGroup]*ast.GenDecl{}
 	for _, d := range f.Decls {
 		if g, ok := d.(*ast.GenDecl); ok && g.Doc != nil {
@@ -213,10 +185,10 @@ func Analyze(src []byte, filename string) (*Result, error) {
 		}
 	}
 
-	// detachIfAttached inserts a blank line before the decl when the comment group
-	// being rewritten to /// is the attached Doc of a GenDecl; gofmt would otherwise
-	// rewrite the /// back to // / (rule 7). Fired once per decl even when several
-	// comment lines chain into it.
+	/// detachIfAttached inserts a blank line before the decl when the comment group
+	/// being rewritten to /// is the attached Doc of a GenDecl; gofmt would otherwise
+	/// rewrite the /// back to // / (rule 7). Fired once per decl even when several
+	/// comment lines chain into it.
 	detached := map[*ast.GenDecl]bool{}
 	detachIfAttached := func(g *ast.CommentGroup) {
 		gd, ok := genDocDecls[g]
@@ -229,8 +201,8 @@ func Analyze(src []byte, filename string) (*Result, error) {
 		r.Edits = append(r.Edits, Edit{p, p, "\n"})
 	}
 
-	// Rule B: detach /// blocks attached to top-level type/const/var decls.
-	// Rule B: detach /// blocks attached to top-level type/const/var decls.
+	/// Rule B: detach /// blocks attached to top-level type/const/var decls.
+	/// Rule B: detach /// blocks attached to top-level type/const/var decls.
 	for _, d := range f.Decls {
 		g, ok := d.(*ast.GenDecl)
 		if !ok || g.Doc == nil {
@@ -247,11 +219,31 @@ func Analyze(src []byte, filename string) (*Result, error) {
 		r.Edits = append(r.Edits, Edit{p, p, "\n"})
 	}
 
-	// Rules C/D/E over every comment token.
+	/// Comment groups owned by other rules: func docs (deleted or swagger-kept)
+	/// and the package doc (gofmt forces // there).
+	funcDoc := map[*ast.CommentGroup]bool{}
+	for _, d := range f.Decls {
+		if fd, ok := d.(*ast.FuncDecl); ok && fd.Doc != nil {
+			funcDoc[fd.Doc] = true
+		}
+	}
+	pkgDoc := map[*ast.Comment]bool{}
+	if f.Doc != nil {
+		for _, c := range f.Doc.List {
+			pkgDoc[c] = true
+			/// Rule G: /// above the package clause is gofmt-unstable (rewritten to // /).
+			if strings.HasPrefix(c.Text, "///") {
+				r.Violations = append(r.Violations, Violation{Line: tf.Line(c.Pos()), Rule: RPackageDoc, Message: "rewrite /// to // above the package clause; gofmt rewrites /// there", Fixable: true})
+				r.Edits = append(r.Edits, Edit{Start: off(c.Pos()), End: off(c.Pos()) + 3, New: "//"})
+			}
+		}
+	}
+
+	/// Rules C/D/E over every comment token.
 	for _, g := range f.Comments {
 		for _, c := range g.List {
 			lo, hi := off(c.Pos()), off(c.End())
-			if inDeleted(lo) {
+			if inDeleted(lo) || funcDoc[g] || pkgDoc[c] {
 				continue
 			}
 
@@ -287,8 +279,7 @@ func Analyze(src []byte, filename string) (*Result, error) {
 				continue
 			}
 
-			needSlash := strings.HasPrefix(trimmed, "<!-") || inZone(c.Pos())
-			if needSlash && !strings.HasPrefix(c.Text, "///") {
+			if !strings.HasPrefix(c.Text, "///") {
 				r.Violations = append(r.Violations, Violation{Line: tf.Line(c.Pos()), Rule: RTagSlash, Message: "rewrite comment prefix // to /// (annotation/tag)", Fixable: true})
 				r.Edits = append(r.Edits, Edit{lo, lo + 2, "///"})
 				detachIfAttached(g)
@@ -305,7 +296,7 @@ func Analyze(src []byte, filename string) (*Result, error) {
 		}
 	}
 
-	// Rule F: file heading between package and import.
+	/// Rule F: file heading between package and import.
 	pkgEnd := off(f.Name.End())
 	if nl := strings.IndexByte(string(src[pkgEnd:]), '\n'); nl >= 0 {
 		pkgEnd += nl + 1
@@ -352,7 +343,7 @@ func Analyze(src []byte, filename string) (*Result, error) {
 		}
 		insAt, rep := pkgEnd, "\n"+b.String()
 		if hasFILE && fileGroupEnd >= 0 {
-			// FILE exists, PURPOSE missing: insert right after the FILE group's line.
+			/// FILE exists, PURPOSE missing: insert right after the FILE group's line.
 			if nl := strings.IndexByte(string(src[fileGroupEnd:]), '\n'); nl >= 0 {
 				insAt = fileGroupEnd + nl + 1
 				rep = b.String()
@@ -389,7 +380,7 @@ func Apply(src []byte, edits []Edit) []byte {
 			continue
 		}
 		if prevEnd >= 0 && e.End > prevEnd {
-			continue // overlap guard, should not happen
+			continue /// overlap guard, should not happen
 		}
 		prevEnd = e.Start
 		out = append(out[:e.Start], append([]byte(e.New), out[e.End:]...)...)

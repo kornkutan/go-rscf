@@ -176,7 +176,7 @@ func TestFuncDocFormula(t *testing.T) {
 	if !found {
 		t.Errorf("expected RFuncDoc message mentioning FORMULA; got %+v", res.Violations)
 	}
-	// the tag lines must NOT also trigger RTagSlash: they are inside the deleted group.
+	/// the tag lines must NOT also trigger RTagSlash: they are inside the deleted group.
 	for _, v := range res.Violations {
 		if v.Rule == RTagSlash {
 			t.Errorf("tag-slash should not fire on lines being deleted: %s", v.Message)
@@ -225,7 +225,7 @@ func TestDetachTopLevelConstNonParen(t *testing.T) {
 }
 
 func TestSpecLevelSurvives(t *testing.T) {
-	// /// above a spec inside const (...) is already gofmt-stable; no detach needed.
+	/// /// above a spec inside const (...) is already gofmt-stable; no detach needed.
 	runFixture(t, fixture{
 		name:       "/// inside const block spec survives",
 		src:        "package x\n\nconst (\n\t/// <!- LIMITS\n\tMaxN = 5\n)\n",
@@ -264,12 +264,54 @@ func TestTagSlashConstBlockSpecDoc(t *testing.T) {
 	})
 }
 
-func TestBodyPlainRemarkUntouched(t *testing.T) {
+func TestBodyRemarkRewritten(t *testing.T) {
 	runFixture(t, fixture{
-		name:       "plain // remark in function body left alone",
+		name:       "plain // remark in function body rewritten to ///",
 		src:        "package x\n\nfunc F() {\n\t// just a casual remark\n\tx := 1\n\t_ = x\n}\n",
-		wantNoRule: []Rule{RTagSlash, RFuncDoc},
-		wantSubstr: "// just a casual remark",
+		wantRule:   map[Rule]int{RTagSlash: 1},
+		wantNoRule: []Rule{RFuncDoc},
+		wantSubstr: "/// just a casual remark",
+		stable:     true,
+	})
+}
+
+func TestTrailingBodyRemarkRewritten(t *testing.T) {
+	runFixture(t, fixture{
+		name:       "trailing // remark after statement rewritten to ///",
+		src:        "package x\n\nfunc F() {\n\tx := 1 // note\n\t_ = x\n}\n",
+		wantRule:   map[Rule]int{RTagSlash: 1},
+		wantSubstr: "x := 1 /// note",
+		stable:     true,
+	})
+}
+
+func TestPlainTypeDocConvertedAndDetached(t *testing.T) {
+	runFixture(t, fixture{
+		name:       "plain // godoc above type becomes detached ///",
+		src:        "package x\n\n// Foo is a thing.\ntype Foo struct{}\n",
+		wantRule:   map[Rule]int{RTagSlash: 1, RDetach: 1},
+		wantSubstr: "/// Foo is a thing.\n\ntype Foo struct{}",
+		stable:     true,
+	})
+}
+
+func TestPackageDocPlainKept(t *testing.T) {
+	runFixture(t, fixture{
+		name:       "// package doc stays // (gofmt constraint)",
+		src:        "// Package x does stuff.\npackage x\n\nvar _ = 1\n",
+		wantNoRule: []Rule{RTagSlash, RPackageDoc},
+		wantSubstr: "// Package x does stuff.",
+		stable:     true,
+	})
+}
+
+func TestPackageDocTripleSlashFixed(t *testing.T) {
+	runFixture(t, fixture{
+		name:       "/// above package rewritten to // (gofmt-unstable otherwise)",
+		src:        "/// Package x does stuff.\npackage x\n\nvar _ = 1\n",
+		wantRule:   map[Rule]int{RPackageDoc: 1},
+		wantNoRule: []Rule{RTagSlash},
+		wantSubstr: "// Package x does stuff.",
 		stable:     true,
 	})
 }
@@ -325,7 +367,7 @@ func TestASCIISymbol(t *testing.T) {
 }
 
 func TestASCIIThaiAcceptable(t *testing.T) {
-	// Pure Thai text: no mappable symbols, no violation at all.
+	/// Pure Thai text: no mappable symbols, no violation at all.
 	res, err := Analyze([]byte("package x\n\n// \u0E01\u0E32\u0E23 thai text\nvar _ = 1\n"), fname)
 	if err != nil {
 		t.Fatal(err)
@@ -336,7 +378,7 @@ func TestASCIIThaiAcceptable(t *testing.T) {
 		}
 	}
 
-	// Mixed Thai + em-dash: only the symbol is normalized, Thai preserved.
+	/// Mixed Thai + em-dash: only the symbol is normalized, Thai preserved.
 	src := []byte("package x\n\n// \u0E01\u0E32\u0E23 \u2014 data\nvar _ = 1\n")
 	res, err = Analyze(src, fname)
 	if err != nil {
@@ -427,8 +469,8 @@ func TestSlopReportOnly(t *testing.T) {
 }
 
 func TestChainingTagRewriteTriggersDetach(t *testing.T) {
-	// // <!- above a type: rewrite to /// must also insert a blank line,
-	// otherwise gofmt rewrites the /// back to // /.
+	/// // <!- above a type: rewrite to /// must also insert a blank line,
+	/// otherwise gofmt rewrites the /// back to // /.
 	runFixture(t, fixture{
 		name:       "// <!- above type: rewrite + detach in one pass",
 		src:        "package x\n\n// <!- MODEL: T\ntype T struct{}\n",
@@ -439,8 +481,8 @@ func TestChainingTagRewriteTriggersDetach(t *testing.T) {
 }
 
 func TestChainingDetachedOncePerDecl(t *testing.T) {
-	// Several tag lines above one decl chain rewrites but must emit exactly
-	// one detach violation and one blank-line edit.
+	/// Several tag lines above one decl chain rewrites but must emit exactly
+	/// one detach violation and one blank-line edit.
 	src := []byte("package x\n\n// <!- TAG: a\n// <!- TAG: b\n// <!- TAG: c\nconst (\n\tA = 1\n)\n")
 	res, err := Analyze(src, fname)
 	if err != nil {
@@ -476,7 +518,7 @@ func TestChainingDetachedOncePerDecl(t *testing.T) {
 }
 
 func TestChainingTagAboveImport(t *testing.T) {
-	// // <!- above import gets rewritten to ///; gofmt leaves import-attached /// alone.
+	/// // <!- above import gets rewritten to ///; gofmt leaves import-attached /// alone.
 	runFixture(t, fixture{
 		name:       "// <!- above import rewritten (import heading survives gofmt)",
 		src:        "package x\n\n// <!- GROUP: imports\nimport \"fmt\"\n\nvar _ = fmt.Print\n",
@@ -501,7 +543,7 @@ func TestApplyNoEdits(t *testing.T) {
 }
 
 func TestApplyCollapseNewlines(t *testing.T) {
-	// Two deletions one after another that would leave 3+ newlines collapse to one blank.
+	/// Two deletions one after another that would leave 3+ newlines collapse to one blank.
 	src := []byte("package x\n\n// c1\n// c2\nfunc F() {}\n")
 	res, err := Analyze(src, fname)
 	if err != nil {
@@ -521,7 +563,7 @@ func TestApplyCollapseNewlines(t *testing.T) {
 }
 
 func TestApplyInsertionAndDeletion(t *testing.T) {
-	// Combine a heading injection (insert) with a func-doc delete (range) and assert stable.
+	/// Combine a heading injection (insert) with a func-doc delete (range) and assert stable.
 	src := []byte("package x\n\n// CreateOrder creates an order.\nfunc CreateOrder() {}\n")
 	res, err := Analyze(src, fname)
 	if err != nil {
@@ -582,7 +624,7 @@ func TestApplyOverlapGuard(t *testing.T) {
 	src := []byte("0123456789ABCDEF")
 	edits := []Edit{{Start: 0, End: 10, New: "Y"}, {Start: 5, End: 15, New: "X"}}
 	out := Apply(src, edits)
-	// The [0,10) edit overlaps the already-applied [5,15) edit and is skipped.
+	/// The [0,10) edit overlaps the already-applied [5,15) edit and is skipped.
 	if !strings.Contains(string(out), "X") {
 		t.Errorf("non-overlapping edit should apply, got %q", out)
 	}

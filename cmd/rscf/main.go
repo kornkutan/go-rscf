@@ -133,7 +133,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 				aPath, bPath)
 			var buf bytes.Buffer
 			cmd.Stdout = &buf
-			cmd.Run() // exit 1 means differences exist
+			cmd.Run() /// exit 1 means differences exist
 			stdout.Write(buf.Bytes())
 			if !stable {
 				fmt.Fprintf(stdout, "[gofmt-unstable] %s\n", rel(f))
@@ -154,7 +154,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "\n== summary ==\n")
 	fmt.Fprintf(stdout, "scanned: %d, generated skipped: %d, parse errors: %d\n", len(files), skippedGen, parseErrs)
 	fmt.Fprintf(stdout, "files with violations: %d, gofmt-unstable: %d\n", changed, unstable)
-	for _, rule := range []engine.Rule{engine.RFuncDoc, engine.RDetach, engine.RTagSlash, engine.RBlock, engine.RAscii, engine.RHeadingFile, engine.RHeadingPurp, engine.RSlop} {
+	for _, rule := range []engine.Rule{engine.RFuncDoc, engine.RDetach, engine.RTagSlash, engine.RBlock, engine.RAscii, engine.RHeadingFile, engine.RHeadingPurp, engine.RPackageDoc, engine.RSlop} {
 		if n := ruleCounts[rule]; n > 0 {
 			fmt.Fprintf(stdout, "  %-16s %d\n", rule, n)
 		}
