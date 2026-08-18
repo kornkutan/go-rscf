@@ -169,9 +169,6 @@ The marker, per the `go generate` spec: a line matching `^// Code generated .* D
 This is a whole-file skip, not a line skip. There is no partial handling.
 
 ## Why This Style
-
-## Why This Style
-
 Personal preference. I come from a Rust and Java background:
 
 - Rust's `///` doc comments cleanly separate documentation from casual `//` remarks. The slash count carries meaning.
