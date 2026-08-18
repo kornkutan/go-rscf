@@ -1,9 +1,13 @@
 package main
 
+/// <!- FILE: `main.go`
+/// <!- PURPOSE: CLI entry: scan Go files for comment-style violations; dry-run by default, --fix/--diff to apply.
+
 import (
 	"bytes"
 	"fmt"
 	"go/format"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,33 +18,37 @@ import (
 )
 
 func main() {
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+func run(args []string, stdout, stderr io.Writer) int {
 	var fix, diff bool
 	var paths []string
-	for _, a := range os.Args[1:] {
+	for _, a := range args {
 		switch a {
 		case "--fix":
 			fix = true
 		case "--diff":
 			diff = true
 		case "-h", "--help":
-			usage()
-			return
+			usage(stderr)
+			return 0
 		default:
 			if strings.HasPrefix(a, "-") {
-				fmt.Fprintf(os.Stderr, "unknown flag %q\n", a)
-				usage()
-				os.Exit(2)
+				fmt.Fprintf(stderr, "unknown flag %q\n", a)
+				usage(stderr)
+				return 2
 			}
 			paths = append(paths, a)
 		}
 	}
 	if len(paths) == 0 {
-		usage()
-		os.Exit(2)
+		usage(stderr)
+		return 2
 	}
 	if fix && diff {
-		fmt.Fprintln(os.Stderr, "--fix and --diff are mutually exclusive")
-		os.Exit(2)
+		fmt.Fprintln(stderr, "--fix and --diff are mutually exclusive")
+		return 2
 	}
 	mode := "dry-run"
 	if fix {
@@ -49,7 +57,7 @@ func main() {
 		mode = "diff"
 	}
 
-	files := collectFiles(paths)
+	files := collectFiles(paths, stderr)
 	sort.Strings(files)
 
 	ruleCounts := map[engine.Rule]int{}
@@ -62,7 +70,7 @@ func main() {
 	for _, f := range files {
 		src, err := os.ReadFile(f)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "read %s: %v\n", f, err)
+			fmt.Fprintf(stderr, "read %s: %v\n", f, err)
 			continue
 		}
 		if engine.IsGenerated(src) {
@@ -72,7 +80,7 @@ func main() {
 		res, err := engine.Analyze(src, f)
 		if err != nil {
 			parseErrs++
-			fmt.Fprintf(os.Stderr, "parse %s: %v\n", f, err)
+			fmt.Fprintf(stderr, "parse %s: %v\n", f, err)
 			continue
 		}
 		for _, v := range res.Violations {
@@ -96,20 +104,20 @@ func main() {
 		case "dry-run":
 			if !printedHint {
 				printedHint = true
-				fmt.Println("# apply fixes bottom-up within each file to keep line numbers valid")
+				fmt.Fprintln(stdout, "# apply fixes bottom-up within each file to keep line numbers valid")
 			}
 			for _, v := range res.Violations {
 				if !v.Fixable {
 					continue
 				}
 				if v.EndLine > v.Line {
-					fmt.Printf("%s:%d-%d [%s] %s\n", rel(f), v.Line, v.EndLine, v.Rule, v.Message)
+					fmt.Fprintf(stdout, "%s:%d-%d [%s] %s\n", rel(f), v.Line, v.EndLine, v.Rule, v.Message)
 				} else {
-					fmt.Printf("%s:%d [%s] %s\n", rel(f), v.Line, v.Rule, v.Message)
+					fmt.Fprintf(stdout, "%s:%d [%s] %s\n", rel(f), v.Line, v.Rule, v.Message)
 				}
 			}
 			if !stable {
-				fmt.Printf("%s: [gofmt-unstable] rewrite is not gofmt-stable; engine bug, file an issue\n", rel(f))
+				fmt.Fprintf(stdout, "%s: [gofmt-unstable] rewrite is not gofmt-stable; engine bug, file an issue\n", rel(f))
 			}
 		case "diff":
 			aPath := filepath.Join(tmp, "a")
@@ -123,42 +131,43 @@ func main() {
 			var buf bytes.Buffer
 			cmd.Stdout = &buf
 			cmd.Run() // exit 1 means differences exist
-			os.Stdout.Write(buf.Bytes())
+			stdout.Write(buf.Bytes())
 			if !stable {
-				fmt.Printf("[gofmt-unstable] %s\n", rel(f))
+				fmt.Fprintf(stdout, "[gofmt-unstable] %s\n", rel(f))
 			}
 		case "fix":
 			if !stable {
-				fmt.Printf("[gofmt-unstable, NOT written] %s\n", rel(f))
+				fmt.Fprintf(stdout, "[gofmt-unstable, NOT written] %s\n", rel(f))
 				continue
 			}
 			if err := os.WriteFile(f, out, 0644); err != nil {
-				fmt.Fprintf(os.Stderr, "write %s: %v\n", f, err)
+				fmt.Fprintf(stderr, "write %s: %v\n", f, err)
 				continue
 			}
-			fmt.Printf("fixed %s\n", rel(f))
+			fmt.Fprintf(stdout, "fixed %s\n", rel(f))
 		}
 	}
 
-	fmt.Printf("\n== summary ==\n")
-	fmt.Printf("scanned: %d, generated skipped: %d, parse errors: %d\n", len(files), skippedGen, parseErrs)
-	fmt.Printf("files with violations: %d, gofmt-unstable: %d\n", changed, unstable)
+	fmt.Fprintf(stdout, "\n== summary ==\n")
+	fmt.Fprintf(stdout, "scanned: %d, generated skipped: %d, parse errors: %d\n", len(files), skippedGen, parseErrs)
+	fmt.Fprintf(stdout, "files with violations: %d, gofmt-unstable: %d\n", changed, unstable)
 	for _, rule := range []engine.Rule{engine.RFuncDoc, engine.RDetach, engine.RTagSlash, engine.RBlock, engine.RAscii, engine.RHeadingFile, engine.RHeadingPurp, engine.RSlop} {
 		if n := ruleCounts[rule]; n > 0 {
-			fmt.Printf("  %-16s %d\n", rule, n)
+			fmt.Fprintf(stdout, "  %-16s %d\n", rule, n)
 		}
 	}
-	fmt.Printf("report-only (manual review): %d\n", len(reportOnly))
+	fmt.Fprintf(stdout, "report-only (manual review): %d\n", len(reportOnly))
 	for _, l := range reportOnly {
-		fmt.Printf("  %s\n", l)
+		fmt.Fprintf(stdout, "  %s\n", l)
 	}
 	if len(ruleCounts) > 0 {
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
-func usage() {
-	fmt.Fprintln(os.Stderr, `usage: rscf [--fix|--diff] <paths>...
+func usage(w io.Writer) {
+	fmt.Fprintln(w, `usage: rscf [--fix|--diff] <paths>...
 
   rscf <paths>      dry run (default): print file:line [rule] fix instructions,
                     one per line, addressed for an AI coding agent to apply
@@ -166,12 +175,12 @@ func usage() {
   rscf --diff <paths> unified diff of proposed rewrites (human review)`)
 }
 
-func collectFiles(roots []string) []string {
+func collectFiles(roots []string, stderr io.Writer) []string {
 	var files []string
 	for _, root := range roots {
 		info, err := os.Stat(root)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "stat %s: %v\n", root, err)
+			fmt.Fprintf(stderr, "stat %s: %v\n", root, err)
 			continue
 		}
 		if !info.IsDir() {

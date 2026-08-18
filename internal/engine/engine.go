@@ -1,6 +1,9 @@
-// Package engine analyzes Go source against the R002 comment conventions
+// Package engine analyzes Go source against rust-style comment conventions
 // and produces text edits that are byte-stable under gofmt.
 package engine
+
+/// <!- FILE: `engine.go`
+/// <!- PURPOSE: Analyze Go source for comment-style violations; emit fix edits that stay gofmt-stable.
 
 import (
 	"fmt"
@@ -28,9 +31,9 @@ const (
 
 type Violation struct {
 	Line    int
-	EndLine int // inclusive end line for multi-line violations; 0 means single-line
+	EndLine int /// inclusive end line for multi-line violations; 0 means single-line
 	Rule    Rule
-	Message string // imperative fix instruction, agent-actionable
+	Message string /// imperative fix instruction, agent-actionable
 	Fixable bool
 }
 
@@ -63,8 +66,6 @@ var asciiMap = map[rune]string{
 	'\u2022': "-", '\u00B7': ".",
 }
 
-// IsGenerated reports whether src carries the Go generated-file marker
-// before the package clause.
 func IsGenerated(src []byte) bool {
 	for _, line := range strings.Split(string(src), "\n") {
 		t := strings.TrimRight(line, "\r")
@@ -78,8 +79,6 @@ func IsGenerated(src []byte) bool {
 	return false
 }
 
-// asciiPairs lists the non-ASCII symbols found in s with their ASCII
-// replacements, in discovery order, for the fix instruction message.
 func asciiPairs(s string) string {
 	seen := map[rune]bool{}
 	var parts []string
@@ -125,8 +124,6 @@ func isSwaggerOrDirective(g *ast.CommentGroup) bool {
 	return false
 }
 
-// Analyze parses src and returns violations plus the edits that fix them.
-// Edits are byte offsets into src and never overlap.
 func Analyze(src []byte, filename string) (*Result, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, filename, src, parser.ParseComments|parser.SkipObjectResolution)
@@ -209,6 +206,20 @@ func Analyze(src []byte, filename string) (*Result, error) {
 		}
 	}
 
+	// detachIfAttached inserts a blank line before the decl when the comment group
+	// being rewritten to /// is the attached Doc of a GenDecl; gofmt would otherwise
+	// rewrite the /// back to // / (rule 7).
+	detachIfAttached := func(g *ast.CommentGroup) {
+		gd, ok := genDocDecls[g]
+		if !ok || tf.Line(gd.Pos())-tf.Line(gd.Doc.End()) >= 2 {
+			return
+		}
+		p := off(gd.Pos())
+		r.Violations = append(r.Violations, Violation{Line: tf.Line(gd.Doc.Pos()), Rule: RDetach, Message: fmt.Sprintf("insert one blank line before line %d - /// block must be detached from the %s decl", tf.Line(gd.Pos()), gd.Tok.String()), Fixable: true})
+		r.Edits = append(r.Edits, Edit{p, p, "\n"})
+	}
+
+	// Rule B: detach /// blocks attached to top-level type/const/var decls.
 	// Rule B: detach /// blocks attached to top-level type/const/var decls.
 	for _, d := range f.Decls {
 		g, ok := d.(*ast.GenDecl)
@@ -251,6 +262,9 @@ func Analyze(src []byte, filename string) (*Result, error) {
 				}
 				r.Violations = append(r.Violations, Violation{Line: tf.Line(c.Pos()), EndLine: tf.Line(c.End()), Rule: RBlock, Message: "rewrite /* */ block as /// line comments", Fixable: true})
 				r.Edits = append(r.Edits, Edit{lo, hi, rep})
+				if rep != "" {
+					detachIfAttached(g)
+				}
 				continue
 			}
 
@@ -267,13 +281,7 @@ func Analyze(src []byte, filename string) (*Result, error) {
 			if needSlash && !strings.HasPrefix(c.Text, "///") {
 				r.Violations = append(r.Violations, Violation{Line: tf.Line(c.Pos()), Rule: RTagSlash, Message: "rewrite comment prefix // to /// (annotation/tag)", Fixable: true})
 				r.Edits = append(r.Edits, Edit{lo, lo + 2, "///"})
-				// Chaining: if this rewrite makes an attached /// doc on a decl, detach it now,
-				// otherwise gofmt rewrites it back to // / (rule 7).
-				if gd, ok := genDocDecls[g]; ok && tf.Line(gd.Pos())-tf.Line(gd.Doc.End()) < 2 {
-					p := off(gd.Pos())
-					r.Violations = append(r.Violations, Violation{Line: tf.Line(gd.Doc.Pos()), Rule: RDetach, Message: fmt.Sprintf("insert one blank line before line %d - /// block must be detached from the %s decl", tf.Line(gd.Pos()), gd.Tok.String()), Fixable: true})
-					r.Edits = append(r.Edits, Edit{p, p, "\n"})
-				}
+				detachIfAttached(g)
 			}
 
 			if nb, ok := mapASCII(body); ok {
@@ -359,8 +367,6 @@ func Analyze(src []byte, filename string) (*Result, error) {
 	return r, nil
 }
 
-// Apply applies edits to src and collapses any 3+ consecutive newlines that
-// result. Edits must be non-overlapping (Analyze guarantees this).
 func Apply(src []byte, edits []Edit) []byte {
 	if len(edits) == 0 {
 		return src
