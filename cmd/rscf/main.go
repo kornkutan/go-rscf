@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kornkutan/rscf/internal/engine"
+	"github.com/kornkutan/go-rscf/internal/engine"
 )
 
 func main() {

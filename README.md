@@ -7,7 +7,7 @@
 Requires Go 1.26+.
 
 ```
-go install github.com/kornkutan/rscf/cmd/rscf@latest
+go install github.com/kornkutan/go-rscf/cmd/rscf@latest
 ```
 
 ```
