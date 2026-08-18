@@ -438,6 +438,43 @@ func TestChainingTagRewriteTriggersDetach(t *testing.T) {
 	})
 }
 
+func TestChainingDetachedOncePerDecl(t *testing.T) {
+	// Several tag lines above one decl chain rewrites but must emit exactly
+	// one detach violation and one blank-line edit.
+	src := []byte("package x\n\n// <!- TAG: a\n// <!- TAG: b\n// <!- TAG: c\nconst (\n\tA = 1\n)\n")
+	res, err := Analyze(src, fname)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detachCount := 0
+	for _, v := range res.Violations {
+		if v.Rule == RDetach {
+			detachCount++
+		}
+	}
+	if detachCount != 1 {
+		t.Errorf("got %d detach violations, want 1; violations=%+v", detachCount, res.Violations)
+	}
+	inserts := 0
+	for _, e := range res.Edits {
+		if e.New == "\n" && e.Start == e.End {
+			inserts++
+		}
+	}
+	if inserts != 1 {
+		t.Errorf("got %d blank-line insert edits, want 1", inserts)
+	}
+	out := Apply(src, res.Edits)
+	want := "/// <!- TAG: c\n\nconst ("
+	if !strings.Contains(string(out), want) {
+		t.Errorf("want %q\nGOT:\n%s", want, out)
+	}
+	fmtOut, ferr := format.Source(out)
+	if ferr != nil || string(fmtOut) != string(out) {
+		t.Errorf("not gofmt-stable: %v", ferr)
+	}
+}
+
 func TestChainingTagAboveImport(t *testing.T) {
 	// // <!- above import gets rewritten to ///; gofmt leaves import-attached /// alone.
 	runFixture(t, fixture{

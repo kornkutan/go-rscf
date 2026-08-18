@@ -206,12 +206,15 @@ func Analyze(src []byte, filename string) (*Result, error) {
 
 	// detachIfAttached inserts a blank line before the decl when the comment group
 	// being rewritten to /// is the attached Doc of a GenDecl; gofmt would otherwise
-	// rewrite the /// back to // / (rule 7).
+	// rewrite the /// back to // / (rule 7). Fired once per decl even when several
+	// comment lines chain into it.
+	detached := map[*ast.GenDecl]bool{}
 	detachIfAttached := func(g *ast.CommentGroup) {
 		gd, ok := genDocDecls[g]
-		if !ok || tf.Line(gd.Pos())-tf.Line(gd.Doc.End()) >= 2 {
+		if !ok || detached[gd] || tf.Line(gd.Pos())-tf.Line(gd.Doc.End()) >= 2 {
 			return
 		}
+		detached[gd] = true
 		p := off(gd.Pos())
 		r.Violations = append(r.Violations, Violation{Line: tf.Line(gd.Doc.Pos()), Rule: RDetach, Message: fmt.Sprintf("insert one blank line before line %d - /// block must be detached from the %s decl", tf.Line(gd.Pos()), gd.Tok.String()), Fixable: true})
 		r.Edits = append(r.Edits, Edit{p, p, "\n"})
