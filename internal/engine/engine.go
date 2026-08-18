@@ -66,6 +66,9 @@ var asciiMap = map[rune]string{
 	'\u2022': "-", '\u00B7': ".",
 }
 
+/// Reports whether src carries the Go generated-file marker before the
+/// package clause.
+
 func IsGenerated(src []byte) bool {
 	for _, line := range strings.Split(string(src), "\n") {
 		t := strings.TrimRight(line, "\r")
@@ -78,6 +81,9 @@ func IsGenerated(src []byte) bool {
 	}
 	return false
 }
+
+/// Lists the non-ASCII symbols found in s with their ASCII replacements,
+/// in discovery order, for the fix instruction message.
 
 func asciiPairs(s string) string {
 	seen := map[rune]bool{}
@@ -121,6 +127,9 @@ func isSwaggerOrDirective(g *ast.CommentGroup) bool {
 	}
 	return false
 }
+
+/// Parses src and returns violations plus the edits that fix them.
+/// Edits are byte offsets into src and never overlap.
 
 func Analyze(src []byte, filename string) (*Result, error) {
 	fset := token.NewFileSet()
@@ -363,6 +372,9 @@ func Analyze(src []byte, filename string) (*Result, error) {
 	})
 	return r, nil
 }
+
+/// Applies edits to src and collapses any 3+ consecutive newlines that
+/// result. Edits must be non-overlapping (Analyze guarantees this).
 
 func Apply(src []byte, edits []Edit) []byte {
 	if len(edits) == 0 {

@@ -21,6 +21,9 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
+/// Executes one CLI invocation and returns the process exit code.
+/// Split from main so tests can drive it in-process.
+
 func run(args []string, stdout, stderr io.Writer) int {
 	var fix, diff bool
 	var paths []string
